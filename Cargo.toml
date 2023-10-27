@@ -2,7 +2,7 @@
 name = "toy-json-formatter"
 version = "0.1.0"
 edition = "2021"
-license = "GNU"
+license = "GPL-3.0"
 description = "This is a toy JSON formatter for me to practice learning about the JSON specification. It is not intended to be used in production environments."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
