@@ -50,20 +50,67 @@ pub fn format(json: &str) -> String {
                     },
                     JsonTokenKind::Comma => {
                         result.push(',');
-                        result.push('\n');
-                        for _ in 0..indent {
-                            result.push('\t');
-                        }
                     },
                     JsonTokenKind::String => {
+                        if let Some(JsonTokenKind::ObjectStart 
+                            | JsonTokenKind::ArrayStart
+                            | JsonTokenKind::Comma
+                        ) = previous {
+                            result.push('\n');
+                            for _ in 0..indent {
+                                result.push('\t');
+                            }
+                        }
                         result.push_str(&json[token.span.as_range()])
                     },
                     JsonTokenKind::Number => {
+                        if let Some(JsonTokenKind::ObjectStart 
+                            | JsonTokenKind::ArrayStart 
+                            | JsonTokenKind::Comma
+                        ) = previous {
+                            result.push('\n');
+                            for _ in 0..indent {
+                                result.push('\t');
+                            }
+                        }
                         result.push_str(&json[token.span.as_range()])
                     },
-                    JsonTokenKind::True => result.push_str("true"),
-                    JsonTokenKind::False => result.push_str("false"),
-                    JsonTokenKind::Null => result.push_str("null"),
+                    JsonTokenKind::True => {
+                        if let Some(JsonTokenKind::ObjectStart 
+                            | JsonTokenKind::ArrayStart 
+                            | JsonTokenKind::Comma
+                        ) = previous {
+                            result.push('\n');
+                            for _ in 0..indent {
+                                result.push('\t');
+                            }
+                        }
+                        result.push_str("true")
+                    },
+                    JsonTokenKind::False => {
+                        if let Some(JsonTokenKind::ObjectStart 
+                            | JsonTokenKind::ArrayStart 
+                            | JsonTokenKind::Comma
+                        ) = previous {
+                            result.push('\n');
+                            for _ in 0..indent {
+                                result.push('\t');
+                            }
+                        }
+                        result.push_str("false")
+                    },
+                    JsonTokenKind::Null => {
+                        if let Some(JsonTokenKind::ObjectStart 
+                            | JsonTokenKind::ArrayStart 
+                            | JsonTokenKind::Comma
+                        ) = previous {
+                            result.push('\n');
+                            for _ in 0..indent {
+                                result.push('\t');
+                            }
+                        }
+                        result.push_str("null");
+                    },
                 }
                 previous = Some(token.kind);
             }
@@ -117,7 +164,7 @@ impl<'i> JsonTokenizer<'i> {
     }
 
     fn match_string(&mut self) -> Result<JsonToken, TokenizerError> {
-        let quote = self.chars.next();
+        let quote = self.next_char();
         let quote = quote.expect("quote to be Some(\")");
         assert!(quote.1 == '"');
         let start = self.current_position;
@@ -296,11 +343,11 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                     match ch.1 {
                                         '{' => {
                                             self.states.push(JsonTokenizerState::Object);
+                                            self.next_char();
                                             let span = Span {
                                                 start: self.current_position,
                                                 end: self.peek_position(),
                                             };
-                                            self.next_char();
                                             return Some(Ok(JsonToken { 
                                                 span,
                                                 kind: JsonTokenKind::ObjectStart 
@@ -308,11 +355,12 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                         }
                                         '[' => {
                                             self.states.push(JsonTokenizerState::Array);
+                                            self.next_char();
+                                            let start = self.current_position;
                                             let span = Span {
-                                                start: self.current_position,
+                                                start,
                                                 end: self.peek_position(),
                                             };
-                                            self.next_char();
                                             return Some(Ok(JsonToken { 
                                                 span,
                                                 kind: JsonTokenKind::ArrayStart 
@@ -337,7 +385,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                                 return Some(Ok(JsonToken { 
                                                     span: Span {
                                                         start: current_position,
-                                                        end: self.current_position,
+                                                        end: self.peek_position(),
                                                     }, 
                                                     kind: JsonTokenKind::True 
                                                 }));
@@ -347,7 +395,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                                 return Some(Ok(JsonToken { 
                                                     span: Span {
                                                         start: current_position,
-                                                        end: self.current_position,
+                                                        end: self.peek_position(),
                                                     }, 
                                                     kind: JsonTokenKind::False 
                                                 }));
@@ -357,7 +405,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                                 return Some(Ok(JsonToken { 
                                                     span: Span {
                                                         start: current_position,
-                                                        end: self.current_position,
+                                                        end: self.peek_position(),
                                                     }, 
                                                     kind: JsonTokenKind::Null 
                                                 }));
@@ -387,6 +435,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                             }
 
                             // need to find the colon + value next. Put them on the stack!
+                            self.states.push(JsonTokenizerState::Object);
                             self.states.push(JsonTokenizerState::Value);
                             self.states.push(JsonTokenizerState::KeyValuePairColon);
 
@@ -394,12 +443,11 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                         }
                         JsonTokenizerState::KeyValuePairColon => {
                             self.match_whitespace();
-                            let start = self.current_position;
                             if self.match_char(':') {
                                 return Some(Ok(JsonToken {
                                     span: Span { 
-                                        start, 
-                                        end: self.current_position 
+                                        start: self.current_position, 
+                                        end: self.peek_position() 
                                     },
                                     kind: JsonTokenKind::Colon,
                                 }));
@@ -429,8 +477,8 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                         self.states.push(JsonTokenizerState::KeyValuePairKey);
                                         return Some(Ok(JsonToken {
                                             span: Span {
-                                                start,
-                                                end: self.current_position,
+                                                start: self.current_position,
+                                                end: self.peek_position(),
                                             },
                                             kind: JsonTokenKind::Comma,
                                         }))
@@ -468,6 +516,9 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                     kind: JsonTokenKind::ArrayEnd,
                                 }))
                             }
+
+                            self.states.push(JsonTokenizerState::Array);
+                            self.states.push(JsonTokenizerState::Value);
                         }
                     }
                 }
