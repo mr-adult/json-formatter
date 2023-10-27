@@ -1,5 +1,8 @@
 use std::{str::CharIndices, iter::Peekable, ops::Range};
 
+use wasm_bindgen::prelude::wasm_bindgen;
+
+#[wasm_bindgen]
 pub fn format(json: &str) -> String {
     let mut result = String::new();
     let tokenizer = JsonTokenizer::new(&json).peekable();
