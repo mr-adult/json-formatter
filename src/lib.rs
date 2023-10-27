@@ -16,6 +16,15 @@ pub fn format(json: &str) -> String {
             Ok(token) => {
                 match token.kind {
                     JsonTokenKind::ObjectStart => {
+                        if let Some(JsonTokenKind::ObjectStart 
+                            | JsonTokenKind::ArrayStart
+                            | JsonTokenKind::Comma
+                        ) = previous {
+                            result.push('\n');
+                            for _ in 0..indent {
+                                result.push('\t');
+                            }
+                        }
                         indent += 1;
                         result.push('{');
                     }
@@ -32,6 +41,15 @@ pub fn format(json: &str) -> String {
                         }
                     },
                     JsonTokenKind::ArrayStart => {
+                        if let Some(JsonTokenKind::ObjectStart 
+                            | JsonTokenKind::ArrayStart
+                            | JsonTokenKind::Comma
+                        ) = previous {
+                            result.push('\n');
+                            for _ in 0..indent {
+                                result.push('\t');
+                            }
+                        }
                         indent += 1;
                         result.push('[');
                     },
