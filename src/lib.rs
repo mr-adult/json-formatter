@@ -1,11 +1,8 @@
-use std::{str::CharIndices, iter::Peekable, ops::Range};
+use std::{str::CharIndices, iter::Peekable, ops::Range, fmt::Display, error::Error};
 
-use wasm_bindgen::prelude::wasm_bindgen;
-
-#[wasm_bindgen]
-pub fn format(json: &str) -> String {
+pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
     let mut result = String::new();
-    let tokenizer = JsonTokenizer::new(&json).peekable();
+    let tokenizer = JsonTokenizer::new(&json);
     let mut errs = Vec::new();
     let mut indent = 0;
     let mut previous = None;
@@ -138,7 +135,14 @@ pub fn format(json: &str) -> String {
         }
     }
 
-    result
+    (
+        result, 
+        if errs.len() > 0 { 
+            Some(errs.into_iter()
+                .map(|err| Box::new(err) as Box<dyn Error>)
+                .collect()) 
+        } else { None }
+    )
 }
 
 struct JsonTokenizer<'i> {
@@ -194,6 +198,13 @@ impl<'i> JsonTokenizer<'i> {
                 None => {
                     let mut new_unclosed = Vec::with_capacity(0);
                     std::mem::swap(&mut new_unclosed, &mut self.states);
+                    self.lookahead = Some(JsonToken { 
+                            span: Span {
+                                start: start,
+                                end: self.peek_position(),
+                            },
+                            kind: JsonTokenKind::String 
+                        });
                     return Err(TokenizerError::UnexpectedEOF(new_unclosed));
                 }
                 Some(ch) => {
@@ -223,9 +234,7 @@ impl<'i> JsonTokenizer<'i> {
         self.next_char().expect("Start of number to be Some(0..=9 | '-')");
         let start = self.current_position;
         self.match_char('-');
-        let index_of_leading_0 = if let Some(ch_index) = self.chars.peek() {
-            ch_index.0
-        } else { 0 };
+        let index_of_leading_0 = self.peek_position();
 
         let mut leading_0_err = None;
         if self.match_char('0') && self.match_char_if(|ch| ch.is_ascii_digit()) {
@@ -607,7 +616,52 @@ enum JsonValueYieldState {
 #[derive(Debug, Clone)]
 enum TokenizerError {
     UnexpectedEOF(Vec<JsonTokenizerState>),
-    IllegalLeading0(usize),
+    IllegalLeading0(Position),
     UnexpectedCharacter(JsonTokenizerState, Position),
     MultipleValues,
+}
+
+impl Error for TokenizerError {}
+impl Display for TokenizerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut result = String::new();
+        match self {
+            TokenizerError::UnexpectedEOF(uncloseds) => {
+                result.push_str("Unexpected EOF. Expected");
+                for (i, unclosed) in uncloseds.into_iter().enumerate() {
+                    if i != 0 { 
+                        result.push(',');
+                        if i == uncloseds.len() - 1 {
+                            result.push_str(" and");
+                        }
+                    }
+                    match unclosed {
+                        JsonTokenizerState::Object => result.push_str(" '}'"),
+                        JsonTokenizerState::Array => result.push_str(" ']'"),
+                        JsonTokenizerState::KeyValuePairColon => result.push_str(" colon"),
+                        JsonTokenizerState::KeyValuePairKey => result.push_str(" key"),
+                        JsonTokenizerState::Value => result.push_str(" value"),
+                        JsonTokenizerState::AfterValue => result.push_str(" ','"),
+                    }
+                }
+            },
+            TokenizerError::IllegalLeading0(location) => {
+                result.push_str("found illegal leading 0 at line: ");
+                result.push_str(&location.line.to_string());
+                result.push_str(", column: ");
+                result.push_str(&location.col.to_string());
+            },
+            TokenizerError::UnexpectedCharacter(_, position) => {
+                result.push_str("Found unexpected character at line: ");
+                result.push_str(&position.line.to_string());
+                result.push_str(", column: ");
+                result.push_str(&position.col.to_string());
+            },
+            TokenizerError::MultipleValues => {
+                result.push_str("JSON is only allowed to contain one value, but multiple were found.");
+            },
+        }
+        f.write_str(&result)?;
+        Ok(())
+    }
 }
