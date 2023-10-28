@@ -189,9 +189,29 @@ impl<'i> JsonTokenizer<'i> {
     }
 
     fn match_string(&mut self) -> Result<JsonToken, TokenizerError> {
-        let quote = self.next_char();
-        let quote = quote.expect("quote to be Some(\")");
-        assert!(quote.1 == '"');
+        match self.next_char() {
+            None => {
+                let mut new_unclosed = Vec::with_capacity(0);
+                std::mem::swap(&mut new_unclosed, &mut self.states);
+                self.lookahead = Some(JsonToken { 
+                        span: Span {
+                            start: self.current_position,
+                            end: self.peek_position(),
+                        },
+                        kind: JsonTokenKind::String 
+                    });
+                return Err(TokenizerError::UnexpectedEOF(new_unclosed));
+            }
+            Some(quote_val) => {
+                if quote_val.1 != '"' {
+                    return Err(TokenizerError::UnexpectedCharacter(
+                        JsonTokenizerState::Value, 
+                        self.current_position
+                    ))
+                }
+            }
+        };
+
         let start = self.current_position;
         loop {
             match self.next_char() {
