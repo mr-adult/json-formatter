@@ -1,4 +1,10 @@
-use std::{str::CharIndices, iter::Peekable, ops::Range, fmt::Display, error::Error};
+use std::{
+    str::CharIndices, 
+    iter::Peekable, 
+    ops::Range, 
+    fmt::Display, 
+    error::Error,
+};
 
 pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
     let mut result = String::new();
@@ -366,6 +372,12 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                     if let JsonValueYieldState::YieldedErrorMultipleValue = self.yielded_state {
                         return None;
                     }
+                    self.match_whitespace();
+                    if self.match_char(',') {
+                        // trailing commas are common. Make sure we don't choke on them.
+                        return Some(Err(TokenizerError::TrailingComma(self.current_position)));
+                    }
+                    self.match_whitespace();
                     if self.chars.peek().is_some() {
                         self.yielded_state = JsonValueYieldState::YieldedErrorMultipleValue;
                         return Some(Err(TokenizerError::MultipleValues));
@@ -518,7 +530,14 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                             self.match_whitespace();
                             let start = self.current_position;
                             if self.match_char(',') {
-                                assert!(self.states.len() > 0);
+                                let comma_position = self.current_position;
+                                self.match_whitespace();
+                                if let Some((_, '}' | ']')) = self.chars.peek() {
+                                    return Some(Err(
+                                        // trailing commas are common. Make sure we don't choke on them.
+                                        TokenizerError::TrailingComma(comma_position)
+                                    ))
+                                }
 
                                 match self.states.get(self.states.len() - 1).expect("states to include at least 1 value") {
                                     JsonTokenizerState::Object => {
@@ -639,6 +658,7 @@ enum TokenizerError {
     IllegalLeading0(Position),
     UnexpectedCharacter(JsonTokenizerState, Position),
     MultipleValues,
+    TrailingComma(Position),
 }
 
 impl Error for TokenizerError {}
@@ -648,7 +668,7 @@ impl Display for TokenizerError {
         match self {
             TokenizerError::UnexpectedEOF(uncloseds) => {
                 result.push_str("Unexpected EOF. Expected");
-                for (i, unclosed) in uncloseds.into_iter().enumerate() {
+                for (i, unclosed) in uncloseds.into_iter().rev().enumerate() {
                     if i != 0 { 
                         result.push(',');
                         if i == uncloseds.len() - 1 {
@@ -680,8 +700,46 @@ impl Display for TokenizerError {
             TokenizerError::MultipleValues => {
                 result.push_str("JSON is only allowed to contain one value, but multiple were found.");
             },
+            TokenizerError::TrailingComma(position) => {
+                result.push_str("Found illegal trailing comma at line: ");
+                result.push_str(&position.line.to_string());
+                result.push_str(", column: ");
+                result.push_str(&position.col.to_string());
+            }
         }
         f.write_str(&result)?;
         Ok(())
+    }
+}
+#[cfg(test)]
+mod tests {
+    use std::io::{Write, BufRead};
+
+    #[test]
+    fn test_bench() {
+        loop {
+            println!("Enter your JSON:");
+            let mut stdin = std::io::stdin().lock();
+            let mut input = String::new();
+            stdin.read_line(&mut input).expect("Failed to read from stdin.");
+
+            if input.trim().is_empty() { break; }
+            
+            let output = super::format(&input);
+            let mut stdout = std::io::stdout();
+            stdout.write_all(output.0.as_bytes()).expect("Failed to write to stdout.");
+            stdout.write(&['\n' as u8]).expect("Failed to write to stdout");
+            match output.1 {
+                None => {}
+                Some(errs) => {
+                    let mut stdout = std::io::stdout();
+                    for err in errs {
+                        write!(stdout, "{}", err).expect("Failed to write toe stdout.");
+                        write!(stdout, "\n").expect("Failed to write toe stdout.");
+                    }
+                    stdout.flush().expect("Failed to flush to stdout.");
+                }
+            }
+        }
     }
 }
