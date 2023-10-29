@@ -252,8 +252,7 @@ impl<'i> JsonTokenizer<'i> {
     }
 
     fn match_number(&mut self) -> (JsonToken, Option<TokenizerError>) {
-        self.next_char().expect("Start of number to be Some(0..=9 | '-')");
-        let start = self.current_position;
+        let start = self.peek_position();
         self.match_char('-');
         let index_of_leading_0 = self.peek_position();
 
@@ -805,10 +804,7 @@ impl Display for TokenizerError {
                 }
             },
             TokenizerError::IllegalLeading0(location) => {
-                result.push_str("found illegal leading 0 at line: ");
-                result.push_str(&location.line.to_string());
-                result.push_str(", column: ");
-                result.push_str(&location.col.to_string());
+                result.push_str(&format!("found illegal leading 0 at {}", location));
             },
             TokenizerError::UnexpectedCharacter(span) => {
                 result.push_str(&format!(
