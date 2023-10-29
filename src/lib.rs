@@ -3,7 +3,7 @@ use std::{
     iter::Peekable, 
     ops::Range, 
     fmt::Display, 
-    error::Error,
+    error::Error
 };
 
 pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
@@ -21,7 +21,6 @@ pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
                     JsonTokenKind::ObjectStart => {
                         if let Some(JsonTokenKind::ObjectStart 
                             | JsonTokenKind::ArrayStart
-                            | JsonTokenKind::Comma
                         ) = previous {
                             result.push('\n');
                             for _ in 0..indent {
@@ -46,7 +45,6 @@ pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
                     JsonTokenKind::ArrayStart => {
                         if let Some(JsonTokenKind::ObjectStart 
                             | JsonTokenKind::ArrayStart
-                            | JsonTokenKind::Comma
                         ) = previous {
                             result.push('\n');
                             for _ in 0..indent {
@@ -73,12 +71,16 @@ pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
                         result.push(' ');
                     },
                     JsonTokenKind::Comma => {
+                        result.push('\n');
+                        for _ in 0..indent {
+                            result.push('\t');
+                        }
                         result.push(',');
+                        result.push(' ');
                     },
                     JsonTokenKind::String => {
                         if let Some(JsonTokenKind::ObjectStart 
                             | JsonTokenKind::ArrayStart
-                            | JsonTokenKind::Comma
                         ) = previous {
                             result.push('\n');
                             for _ in 0..indent {
@@ -90,7 +92,6 @@ pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
                     JsonTokenKind::Number => {
                         if let Some(JsonTokenKind::ObjectStart 
                             | JsonTokenKind::ArrayStart 
-                            | JsonTokenKind::Comma
                         ) = previous {
                             result.push('\n');
                             for _ in 0..indent {
@@ -102,7 +103,6 @@ pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
                     JsonTokenKind::True => {
                         if let Some(JsonTokenKind::ObjectStart 
                             | JsonTokenKind::ArrayStart 
-                            | JsonTokenKind::Comma
                         ) = previous {
                             result.push('\n');
                             for _ in 0..indent {
@@ -114,7 +114,6 @@ pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
                     JsonTokenKind::False => {
                         if let Some(JsonTokenKind::ObjectStart 
                             | JsonTokenKind::ArrayStart 
-                            | JsonTokenKind::Comma
                         ) = previous {
                             result.push('\n');
                             for _ in 0..indent {
@@ -126,7 +125,6 @@ pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
                     JsonTokenKind::Null => {
                         if let Some(JsonTokenKind::ObjectStart 
                             | JsonTokenKind::ArrayStart 
-                            | JsonTokenKind::Comma
                         ) = previous {
                             result.push('\n');
                             for _ in 0..indent {
@@ -210,10 +208,7 @@ impl<'i> JsonTokenizer<'i> {
             }
             Some(quote_val) => {
                 if quote_val.1 != '"' {
-                    return Err(TokenizerError::UnexpectedCharacter(
-                        JsonTokenizerState::Value, 
-                        self.current_position
-                    ))
+                    return Err(TokenizerError::UnexpectedCharacter(self.recover_in_panic_mode()))
                 }
             }
         };
@@ -356,6 +351,127 @@ impl<'i> JsonTokenizer<'i> {
             result
         }
     }
+
+    /// Tries to recover from an unexpected character using panic mode.
+    /// We resynchronize on ']', '}', and ',' as these 3 are points of known, recoverable states.
+    fn recover_in_panic_mode(&mut self) -> Span {
+        let start = self.current_position;
+        self.match_char_while(|ch| {
+            match ch {
+                // find a synchronization point. 
+                // That is the end of a key-value-pair, 
+                // value, array, or object.
+                ']' | '}' | ',' => false,
+                _ => true,
+            }
+        });
+
+        loop {
+            match self.chars.peek() {
+                None => { break; },
+                Some(char) => {
+                    let should_match = match char.1 {
+                        ']' => {
+                            // Found array end. Resynchronize
+                            if !self.states.iter()
+                                .rev()
+                                .any(|state| *state == JsonTokenizerState::Array) {
+
+                                // consume the character, but we didn't have any arrays 
+                                // so we need to keep panicking.
+                                self.next_char();
+                                false
+                            } else {
+                                while let Some(state) = self.states.pop() {
+                                    match state {
+                                        JsonTokenizerState::Array => {
+                                            break;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                self.lookahead = Some(JsonToken { 
+                                    span: Span {
+                                        start: self.current_position,
+                                        end: self.peek_position()
+                                    },
+                                    kind: JsonTokenKind::ArrayEnd 
+                                });
+                                true
+                            }
+                        }
+                        '}' => {
+                            // Found object end. Resynchronize
+                            if !self.states.iter()
+                                .rev()
+                                .any(|state| *state == JsonTokenizerState::Object) {
+
+                                // consume the character, but we didn't have any arrays 
+                                // so we need to keep panicking.
+                                self.next_char();
+                                false
+                            } else {
+                                while let Some(state) = self.states.pop() {
+                                    match state {
+                                        JsonTokenizerState::Object => {
+                                            break;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                self.lookahead = Some(JsonToken { 
+                                    span: Span {
+                                        start: self.current_position,
+                                        end: self.peek_position()
+                                    },
+                                    kind: JsonTokenKind::ObjectEnd 
+                                });
+                                true
+                            }
+                        }
+                        ',' => {
+                            while let Some(state) = self.states.pop() {
+                                match state {
+                                    JsonTokenizerState::Array => {
+                                        self.states.push(JsonTokenizerState::Array);
+                                        break;
+                                    }
+                                    JsonTokenizerState::Object => {
+                                        self.states.push(JsonTokenizerState::Object);
+                                        self.states.push(JsonTokenizerState::Value);
+                                        self.states.push(JsonTokenizerState::KeyValuePairColon);
+                                        self.states.push(JsonTokenizerState::KeyValuePairKey);
+                                        break;
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            // always match the comma.
+                            self.lookahead = Some(JsonToken { 
+                                span: Span {
+                                    start: self.current_position,
+                                    end: self.peek_position()
+                                }, 
+                                kind: JsonTokenKind::Comma 
+                            });
+                            true
+                        }
+                        _ => false,
+                    };
+    
+                    if should_match {
+                        self.next_char();
+                        break;
+                    }
+                }
+            }
+        }
+
+        return Span { start, end: self.current_position };
+    }
 }
 
 impl<'i> Iterator for JsonTokenizer<'i> {
@@ -380,7 +496,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                     self.match_whitespace();
                     if self.chars.peek().is_some() {
                         self.yielded_state = JsonValueYieldState::YieldedErrorMultipleValue;
-                        return Some(Err(TokenizerError::MultipleValues));
+                        return Some(Err(TokenizerError::MultipleValues(self.current_position)));
                     }
                     return None;
                 }
@@ -473,11 +589,10 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                                 }));
                                             }
 
-                                            self.next_char();
                                             // re-push value back onto the stack, removing AfterValue
                                             self.states.pop();
                                             self.states.push(JsonTokenizerState::Value);
-                                            return Some(Err(TokenizerError::UnexpectedCharacter(JsonTokenizerState::Value, current_position)));
+                                            return Some(Err(TokenizerError::UnexpectedCharacter(self.recover_in_panic_mode())));
                                         }
                                     }
                                 }
@@ -516,8 +631,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                             } else {
                                 return Some(Err(
                                     TokenizerError::UnexpectedCharacter(
-                                        JsonTokenizerState::KeyValuePairColon, 
-                                        self.current_position
+                                        self.recover_in_panic_mode()
                                     )
                                 ));
                             }
@@ -565,8 +679,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                     _ => {
                                         return Some(Err(
                                             TokenizerError::UnexpectedCharacter(
-                                                JsonTokenizerState::AfterValue, 
-                                                start
+                                                self.recover_in_panic_mode()
                                             )
                                         ));
                                     }
@@ -621,6 +734,12 @@ struct Position {
     raw: usize,
 }
 
+impl Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "line: {} column: {}", self.line, self.col)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum JsonTokenKind {
     ObjectStart,
@@ -636,7 +755,7 @@ enum JsonTokenKind {
     Null,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum JsonTokenizerState {
     Object,
     Array,
@@ -656,8 +775,8 @@ enum JsonValueYieldState {
 enum TokenizerError {
     UnexpectedEOF(Vec<JsonTokenizerState>),
     IllegalLeading0(Position),
-    UnexpectedCharacter(JsonTokenizerState, Position),
-    MultipleValues,
+    UnexpectedCharacter(Span),
+    MultipleValues(Position),
     TrailingComma(Position),
 }
 
@@ -681,7 +800,7 @@ impl Display for TokenizerError {
                         JsonTokenizerState::KeyValuePairColon => result.push_str(" colon"),
                         JsonTokenizerState::KeyValuePairKey => result.push_str(" key"),
                         JsonTokenizerState::Value => result.push_str(" value"),
-                        JsonTokenizerState::AfterValue => result.push_str(" ','"),
+                        JsonTokenizerState::AfterValue => {}, // adding ',' to the error just makes it more confusing. Skip.
                     }
                 }
             },
@@ -691,14 +810,18 @@ impl Display for TokenizerError {
                 result.push_str(", column: ");
                 result.push_str(&location.col.to_string());
             },
-            TokenizerError::UnexpectedCharacter(_, position) => {
-                result.push_str("Found unexpected character at line: ");
-                result.push_str(&position.line.to_string());
-                result.push_str(", column: ");
-                result.push_str(&position.col.to_string());
+            TokenizerError::UnexpectedCharacter(span) => {
+                result.push_str(&format!(
+                    "Found unexpected character at {}. Entered panic mode, skipping characters until {}", 
+                    span.start, 
+                    span.end
+                ));
             },
-            TokenizerError::MultipleValues => {
-                result.push_str("JSON is only allowed to contain one value, but multiple were found.");
+            TokenizerError::MultipleValues(position) => {
+                result.push_str(&format!(
+                    "JSON is only allowed to contain one value. Found additional characters after the end of that value starting at {}", 
+                    position
+                ));
             },
             TokenizerError::TrailingComma(position) => {
                 result.push_str("Found illegal trailing comma at line: ");
