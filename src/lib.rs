@@ -241,8 +241,20 @@ impl<'i> JsonTokenizer<'i> {
                         }
                         '\\' => {
                             // we're just tokenizing, not interpreting the value's escape sequences. 
-                            // Quote is the only character that matters to us.
-                            self.match_char('"');
+                            // no need to handle unicode escape sequences.
+                            self.match_char_if(|ch| {
+                                match ch {
+                                    '"' 
+                                    | '\\' 
+                                    | '/' 
+                                    | 'b' 
+                                    | 'f' 
+                                    | 'n' 
+                                    | 'r' 
+                                    | 't' => true,
+                                    _ => false,
+                                }
+                            });
                         }
                         _ => {} // just continue
                     }    
