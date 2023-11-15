@@ -470,7 +470,10 @@ impl<'i> JsonTokenizer<'i> {
                             });
                             true
                         }
-                        _ => false,
+                        _ => {
+                            self.next_char();
+                            continue;
+                        },
                     };
     
                     if should_match {
