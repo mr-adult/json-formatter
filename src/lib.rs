@@ -1,9 +1,9 @@
 mod parser;
 mod tokenizer;
-use parser::{JsonParser, JsonValue};
+use parser::JsonParser;
 use tokenizer::{JsonParseErr, JsonTokenKind, JsonTokenizer};
 
-use std::error::Error;
+use std::{borrow::Cow, collections::HashMap, error::Error, str::FromStr};
 
 pub fn parse(json: &str) -> Result<JsonValue<'_>, Vec<Box<dyn Error>>> {
     match JsonParser::parse(json) {
@@ -17,7 +17,7 @@ pub fn parse(json: &str) -> Result<JsonValue<'_>, Vec<Box<dyn Error>>> {
     }
 }
 
-pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
+pub fn format(json: &str) -> (String, Vec<Box<dyn Error>>) {
     let mut result = String::new();
     let tokenizer = JsonTokenizer::new(json);
     let mut errs = Vec::new();
@@ -161,15 +161,82 @@ pub fn format(json: &str) -> (String, Option<Vec<Box<dyn Error>>>) {
     (
         result,
         if !errs.is_empty() {
-            Some(
-                errs.into_iter()
-                    .map(|err| Box::new(err) as Box<dyn Error>)
-                    .collect(),
-            )
+            errs.into_iter()
+                .map(|err| Box::new(err) as Box<dyn Error>)
+                .collect()
         } else {
-            None
+            Vec::with_capacity(0)
         },
     )
+}
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde_derive::Serialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type", content = "value"))]
+pub enum JsonValue<'i> {
+    Null,
+    Boolean(bool),
+    Number(Box<JsonNumber<'i>>),
+    String(Box<JsonString<'i>>),
+    Array(Vec<JsonValue<'i>>),
+    Object(HashMap<&'i str, JsonValue<'i>>),
+}
+
+#[derive(Clone, Debug)]
+pub struct JsonNumber<'i> {
+    source: &'i str,
+}
+
+#[cfg(feature = "serde")]
+impl<'i> Serialize for JsonNumber<'i> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.source.serialize(serializer)
+    }
+}
+
+impl<'i> JsonNumber<'i> {
+    pub(crate) fn new(source: &'i str) -> Self {
+        Self { source }
+    }
+
+    pub fn parse<T>(&self) -> Result<T, <T as FromStr>::Err>
+    where
+        T: FromStr,
+    {
+        self.source.parse::<T>()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct JsonString<'i> {
+    source: &'i str,
+    cow: Option<Cow<'i, String>>,
+}
+
+impl<'i> JsonString<'i> {
+    pub(crate) fn new(source: &'i str) -> Self {
+        Self { source, cow: None }
+    }
+
+    pub fn raw(&self) -> &str {
+        self.source
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'i> Serialize for JsonString<'i> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.source.serialize(serializer)
+    }
 }
 
 #[cfg(test)]
@@ -198,16 +265,13 @@ mod tests {
             stdout
                 .write(&['\n' as u8])
                 .expect("Failed to write to stdout");
-            match output.1 {
-                None => {}
-                Some(errs) => {
-                    let mut stdout = std::io::stdout();
-                    for err in errs {
-                        write!(stdout, "{}", err).expect("Failed to write toe stdout.");
-                        write!(stdout, "\n").expect("Failed to write toe stdout.");
-                    }
-                    stdout.flush().expect("Failed to flush to stdout.");
+            if output.1.len() > 0 {
+                let mut stdout = std::io::stdout();
+                for err in output.1 {
+                    write!(stdout, "{}", err).expect("Failed to write toe stdout.");
+                    write!(stdout, "\n").expect("Failed to write toe stdout.");
                 }
+                stdout.flush().expect("Failed to flush to stdout.");
             }
 
             let values = super::parse(&input);

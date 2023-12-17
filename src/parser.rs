@@ -1,6 +1,9 @@
-use std::{borrow::Cow, collections::HashMap, iter::Peekable, str::FromStr, vec::IntoIter};
+use std::{collections::HashMap, iter::Peekable, vec::IntoIter};
 
-use crate::tokenizer::{JsonParseErr, JsonToken, JsonTokenKind, JsonTokenizer, UnexpectedToken};
+use crate::{
+    tokenizer::{JsonParseErr, JsonToken, JsonTokenKind, JsonTokenizer, UnexpectedToken},
+    JsonNumber, JsonString, JsonValue,
+};
 
 pub(crate) struct JsonParser<'i> {
     source: &'i str,
@@ -47,9 +50,18 @@ impl<'i> JsonParser<'i> {
                 }));
             }
             Some(token) => match token.kind {
-                JsonTokenKind::Null => return Ok(JsonValue::Null),
-                JsonTokenKind::False => return Ok(JsonValue::Boolean(false)),
-                JsonTokenKind::True => return Ok(JsonValue::Boolean(true)),
+                JsonTokenKind::Null => {
+                    self.tokens.next();
+                    return Ok(JsonValue::Null)
+                }
+                JsonTokenKind::False => {
+                    self.tokens.next();
+                    return Ok(JsonValue::Boolean(false))
+                }
+                JsonTokenKind::True => {
+                    self.tokens.next();
+                    return Ok(JsonValue::Boolean(true))
+                }
                 JsonTokenKind::Number => {
                     return Ok(JsonValue::Number(Box::new(JsonNumber::new(
                         &self.source[self
@@ -166,6 +178,7 @@ impl<'i> JsonParser<'i> {
     fn match_token(&mut self, kind: JsonTokenKind) -> Option<JsonToken> {
         if let Some(peeked) = self.tokens.peek() {
             if peeked.kind == kind {
+                println!("Matched {:?}", kind);
                 return self.tokens.next();
             }
         }
@@ -175,54 +188,13 @@ impl<'i> JsonParser<'i> {
     fn match_token_or_err(&mut self, expected: JsonTokenKind) -> Result<JsonToken, JsonParseErr> {
         match self.match_token(expected) {
             None => Err(JsonParseErr::UnexpectedToken(UnexpectedToken {
-                expected: JsonTokenKind::String,
+                expected, 
                 actual: self.tokens.next(),
             })),
-            Some(token) => Ok(token),
+            Some(token) => {
+                println!("Matched {:?}", token.kind);
+                Ok(token)
+            }
         }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum JsonValue<'i> {
-    Null,
-    Boolean(bool),
-    Number(Box<JsonNumber<'i>>),
-    String(Box<JsonString<'i>>),
-    Array(Vec<JsonValue<'i>>),
-    Object(HashMap<&'i str, JsonValue<'i>>),
-}
-
-#[derive(Clone, Debug)]
-pub struct JsonNumber<'i> {
-    source: &'i str,
-}
-
-impl<'i> JsonNumber<'i> {
-    pub(crate) fn new(source: &'i str) -> Self {
-        Self { source }
-    }
-
-    pub fn parse<T>(&self) -> Result<T, <T as FromStr>::Err>
-    where
-        T: FromStr,
-    {
-        self.source.parse::<T>()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct JsonString<'i> {
-    source: &'i str,
-    cow: Option<Cow<'i, String>>,
-}
-
-impl<'i> JsonString<'i> {
-    pub(crate) fn new(source: &'i str) -> Self {
-        Self { source, cow: None }
-    }
-
-    pub fn raw(&self) -> &str {
-        self.source
     }
 }

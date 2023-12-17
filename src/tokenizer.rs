@@ -338,7 +338,7 @@ impl<'i> JsonTokenizer<'i> {
 
         return Span {
             start,
-            end: self.current_position,
+            end: self.peek_position(),
         };
     }
 }
@@ -684,13 +684,22 @@ impl Display for JsonParseErr {
                 ));
             }
             JsonParseErr::TrailingComma(position) => {
-                result.push_str("Found illegal trailing comma at line: ");
-                result.push_str(&position.line.to_string());
-                result.push_str(", column: ");
-                result.push_str(&position.col.to_string());
+                result.push_str("Found illegal trailing comma at ");
+                result.push_str(&format!("{}", position));
             }
-            JsonParseErr::UnexpectedToken(_) | JsonParseErr::DuplicateKey(_) => {
-                panic!("Bug: tokenizer should never yield UnexpectedToken or DuplicateKey errors");
+            JsonParseErr::UnexpectedToken(unexpected) => {
+                result.push_str("Found unexpected token. Expected: ");
+                result.push_str(&format!("{:?}", unexpected.expected));
+                result.push_str(" but found: ");
+                if let Some(expected) = unexpected.actual.as_ref() {
+                    result.push_str(&format!("{:?}", expected));
+                } else {
+                    result.push_str("EOF");
+                }
+            }
+            JsonParseErr::DuplicateKey(token) => {
+                result.push_str("Found duplicate key at: ");
+                result.push_str(&format!("{}", token.span.start));
             }
         }
         f.write_str(&result)?;
