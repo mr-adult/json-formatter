@@ -178,7 +178,6 @@ impl<'i> JsonParser<'i> {
     fn match_token(&mut self, kind: JsonTokenKind) -> Option<JsonToken> {
         if let Some(peeked) = self.tokens.peek() {
             if peeked.kind == kind {
-                println!("Matched {:?}", kind);
                 return self.tokens.next();
             }
         }
@@ -192,7 +191,6 @@ impl<'i> JsonParser<'i> {
                 actual: self.tokens.next(),
             })),
             Some(token) => {
-                println!("Matched {:?}", token.kind);
                 Ok(token)
             }
         }
