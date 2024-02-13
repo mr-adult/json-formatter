@@ -11,8 +11,7 @@ pub(crate) struct JsonTokenizer<'i> {
 
 impl<'i> JsonTokenizer<'i> {
     pub(crate) fn new(source: &'i str) -> Self {
-        let mut states = Vec::new();
-        states.push(JsonTokenizerState::Value);
+        let states = vec![JsonTokenizerState::Value];
         Self {
             source_len: source.len(),
             chars: source.char_indices().peekable(),
@@ -29,11 +28,7 @@ impl<'i> JsonTokenizer<'i> {
 
     fn match_whitespace(&mut self) {
         loop {
-            let matched = self.match_char_if(|ch| match ch {
-                ' ' | '\n' | '\r' | '\t' => true,
-                _ => false,
-            });
-
+            let matched = self.match_char_if(|ch| matches!(ch, ' ' | '\n' | '\r' | '\t'));
             if !matched {
                 break;
             }
@@ -71,7 +66,7 @@ impl<'i> JsonTokenizer<'i> {
                     std::mem::swap(&mut new_unclosed, &mut self.states);
                     self.lookahead = Some(JsonToken {
                         span: Span {
-                            start: start,
+                            start,
                             end: self.peek_position(),
                         },
                         kind: JsonTokenKind::String,
@@ -83,7 +78,7 @@ impl<'i> JsonTokenizer<'i> {
                         '"' => {
                             return Ok(JsonToken {
                                 span: Span {
-                                    start: start,
+                                    start,
                                     end: self.peek_position(),
                                 },
                                 kind: JsonTokenKind::String,
@@ -92,9 +87,8 @@ impl<'i> JsonTokenizer<'i> {
                         '\\' => {
                             // we're just tokenizing, not interpreting the value's escape sequences.
                             // no need to handle unicode escape sequences.
-                            self.match_char_if(|ch| match ch {
-                                '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' => true,
-                                _ => false,
+                            self.match_char_if(|ch| {
+                                matches!(ch, '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't')
                             });
                         }
                         _ => {} // just continue
@@ -123,16 +117,16 @@ impl<'i> JsonTokenizer<'i> {
             self.match_char_while(|ch| ch.is_ascii_digit());
         }
 
-        return (
+        (
             JsonToken {
                 span: Span {
-                    start: start,
+                    start,
                     end: self.peek_position(),
                 },
                 kind: JsonTokenKind::Number,
             },
             leading_0_err,
-        );
+        )
     }
 
     fn match_literal(&mut self, str: &str) -> bool {
@@ -141,7 +135,7 @@ impl<'i> JsonTokenizer<'i> {
                 return false;
             }
         }
-        return true;
+        true
     }
 
     fn match_char(&mut self, char: char) -> bool {
@@ -244,11 +238,8 @@ impl<'i> JsonTokenizer<'i> {
                                 false
                             } else {
                                 while let Some(state) = self.states.pop() {
-                                    match state {
-                                        JsonTokenizerState::Array => {
-                                            break;
-                                        }
-                                        _ => {}
+                                    if let JsonTokenizerState::Array = state {
+                                        break;
                                     }
                                 }
 
@@ -276,11 +267,8 @@ impl<'i> JsonTokenizer<'i> {
                                 false
                             } else {
                                 while let Some(state) = self.states.pop() {
-                                    match state {
-                                        JsonTokenizerState::Object => {
-                                            break;
-                                        }
-                                        _ => {}
+                                    if let JsonTokenizerState::Object = state {
+                                        break;
                                     }
                                 }
 
@@ -336,10 +324,10 @@ impl<'i> JsonTokenizer<'i> {
             }
         }
 
-        return Span {
+        Span {
             start,
             end: self.peek_position(),
-        };
+        }
     }
 }
 
@@ -384,7 +372,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
                                     }
                                 }
                                 Some(ch) => {
-                                    if self.states.len() > 0 {
+                                    if !self.states.is_empty() {
                                         self.states.push(JsonTokenizerState::AfterValue);
                                     }
                                     match ch.1 {
@@ -524,7 +512,7 @@ impl<'i> Iterator for JsonTokenizer<'i> {
 
                                 match self
                                     .states
-                                    .get(self.states.len() - 1)
+                                    .last()
                                     .expect("states to include at least 1 value")
                                 {
                                     JsonTokenizerState::Object => {

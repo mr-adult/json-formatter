@@ -52,15 +52,15 @@ impl<'i> JsonParser<'i> {
             Some(token) => match token.kind {
                 JsonTokenKind::Null => {
                     self.tokens.next();
-                    return Ok(JsonValue::Null)
+                    return Ok(JsonValue::Null);
                 }
                 JsonTokenKind::False => {
                     self.tokens.next();
-                    return Ok(JsonValue::Boolean(false))
+                    return Ok(JsonValue::Boolean(false));
                 }
                 JsonTokenKind::True => {
                     self.tokens.next();
-                    return Ok(JsonValue::Boolean(true))
+                    return Ok(JsonValue::Boolean(true));
                 }
                 JsonTokenKind::Number => {
                     return Ok(JsonValue::Number(Box::new(JsonNumber::new(
@@ -94,19 +94,17 @@ impl<'i> JsonParser<'i> {
             return arr;
         }
 
-        return Err(JsonParseErr::UnexpectedToken(UnexpectedToken {
+        Err(JsonParseErr::UnexpectedToken(UnexpectedToken {
             expected: JsonTokenKind::Null,
             actual: self.tokens.next(),
-        }));
+        }))
     }
 
     fn match_object(&mut self) -> Option<Result<JsonValue<'i>, JsonParseErr>> {
-        if self.match_token(JsonTokenKind::ObjectStart).is_none() {
-            return None;
-        }
+        self.match_token(JsonTokenKind::ObjectStart)?;
 
         let mut kvps = HashMap::new();
-        if let Some(_) = self.match_token(JsonTokenKind::ObjectEnd) {
+        if self.match_token(JsonTokenKind::ObjectEnd).is_some() {
             return Some(Ok(JsonValue::Object(kvps)));
         }
 
@@ -147,12 +145,10 @@ impl<'i> JsonParser<'i> {
     }
 
     fn match_array(&mut self) -> Option<Result<JsonValue<'i>, JsonParseErr>> {
-        if self.match_token(JsonTokenKind::ArrayStart).is_none() {
-            return None;
-        }
+        self.match_token(JsonTokenKind::ArrayStart)?;
 
         let mut values = Vec::new();
-        if let Some(_) = self.match_token(JsonTokenKind::ArrayEnd) {
+        if self.match_token(JsonTokenKind::ArrayEnd).is_some() {
             return Some(Ok(JsonValue::Array(values)));
         }
 
@@ -181,18 +177,16 @@ impl<'i> JsonParser<'i> {
                 return self.tokens.next();
             }
         }
-        return None;
+        None
     }
 
     fn match_token_or_err(&mut self, expected: JsonTokenKind) -> Result<JsonToken, JsonParseErr> {
         match self.match_token(expected) {
             None => Err(JsonParseErr::UnexpectedToken(UnexpectedToken {
-                expected, 
+                expected,
                 actual: self.tokens.next(),
             })),
-            Some(token) => {
-                Ok(token)
-            }
+            Some(token) => Ok(token),
         }
     }
 }

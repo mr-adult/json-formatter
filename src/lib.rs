@@ -7,13 +7,11 @@ use std::{borrow::Cow, collections::HashMap, error::Error, str::FromStr};
 
 pub fn parse(json: &str) -> Result<JsonValue<'_>, Vec<Box<dyn Error>>> {
     match JsonParser::parse(json) {
-        Ok(value) => return Ok(value),
-        Err(errs) => {
-            return Err(errs
-                .into_iter()
-                .map(|err| Box::new(err) as Box<dyn Error>)
-                .collect())
-        }
+        Ok(value) => Ok(value),
+        Err(errs) => Err(errs
+            .into_iter()
+            .map(|err| Box::new(err) as Box<dyn Error>)
+            .collect()),
     }
 }
 
@@ -262,14 +260,13 @@ mod tests {
             stdout
                 .write_all(output.0.as_bytes())
                 .expect("Failed to write to stdout.");
-            stdout
-                .write(&['\n' as u8])
-                .expect("Failed to write to stdout");
-            if output.1.len() > 0 {
+
+            // If this doesn't write correctly, we don't care. Just ignore the length.
+            let _ = stdout.write(b"\n").expect("Failed to write to stdout");
+            if !output.1.is_empty() {
                 let mut stdout = std::io::stdout();
                 for err in output.1 {
-                    write!(stdout, "{}", err).expect("Failed to write toe stdout.");
-                    write!(stdout, "\n").expect("Failed to write toe stdout.");
+                    writeln!(stdout, "{}", err).expect("Failed to write to stdout.");
                 }
                 stdout.flush().expect("Failed to flush to stdout.");
             }
